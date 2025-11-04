@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timestamp Log Sorter</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root { --bg:#0b1020; --card:#121a36; --ink:#e8ecff; --muted:#9aa4c7; --accent:#6ea8fe; }
+    * { box-sizing: border-box; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 0; background: var(--bg); color: var(--ink); }
+    header { padding: 24px 16px; text-align: center; }
+    header h1 { margin: 0 0 8px; font-size: 1.5rem; }
+    header p { margin: 0; color: var(--muted); }
+
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 0 16px 40px; display: grid; gap: 16px; }
+    .row { display: grid; gap: 12px; }
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    textarea { width: 100%; min-height: 220px; padding: 14px; border-radius: 12px; border: 1px solid #243152; background: var(--card); color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.95rem; line-height: 1.4; resize: vertical; }
+    textarea[readonly] { opacity: 0.95; }
+
+    .btn { appearance: none; border: 1px solid #2b3a66; background: #1a2650; color: var(--ink); padding: 10px 14px; border-radius: 10px; cursor: pointer; font-weight: 600; }
+    .btn:hover { filter: brightness(1.08); }
+    .btn.secondary { background: #101a3b; }
+
+    .hint { color: var(--muted); font-size: 0.9rem; }
+    .footer { color: var(--muted); font-size: 0.85rem; text-align: center; padding-top: 8px; }
+    code.kbd { background: #0f1734; border: 1px solid #26345f; padding: 0 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Elephant Log Sorter</h1>
+    <p>Paste all logs in the top box. Click <strong>Sort it</strong> to sort a read‑only, time‑sorted version below to copy and paste as you like.</p>
+  </header>
+
+  <main class="wrap">
+    <section class="row">
+      <label for="input" class="hint">Input (each log entry should <em>start</em> with a timestamp like <code class="kbd">16:49:34</code>, as the default Elephant format includes.)</label>
+      <textarea id="input" placeholder="Example:\n16:49:34 First event\n16:50:01 Something else\n16:50:01 Same second different line\n16:45:10 Earlier thing\n\nMultiline entries are supported if each new entry starts with HH:MM:SS at the beginning of a line."></textarea>
+      <div class="controls">
+        <button id="sortBtn" class="btn">Sort it</button>
+        <button id="swapBtn" class="btn secondary" title="Swap input and output">Swap</button>
+        <button id="clearBtn" class="btn secondary" title="Clear both boxes">Clear</button>
+      </div>
+      <div class="hint">Parsing rule: entries are split on lines that <strong>begin</strong> with a timestamp <code class="kbd">HH:MM:SS</code>. Lines that don't start with a timestamp are treated as part of the previous entry. Ties keep original order.</div>
+    </section>
+
+    <section class="row">
+      <label for="output" class="hint">Output (read‑only, sorted by timestamp)</label>
+      <textarea id="output" readonly placeholder="Sorted results will appear here..."></textarea>
+      <div class="footer">Tip: Press <code class="kbd">Ctrl</code>+<code class="kbd">A</code> then <code class="kbd">Ctrl</code>+<code class="kbd">C</code> to copy.</div>
+    </section>
+  </main>
+
+  <script>
+    const inputEl = document.getElementById('input');
+    const outputEl = document.getElementById('output');
+    const sortBtn = document.getElementById('sortBtn');
+    const swapBtn = document.getElementById('swapBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    // Matches timestamps at the start of a line: HH:MM:SS
+    const tsLineStart = /^\s*(\d{2}):(\d{2}):(\d{2})\b/;
+
+    function toSecs(h, m, s) { return (+h)*3600 + (+m)*60 + (+s); }
+
+    function parseEntries(raw) {
+      const lines = raw.split(/\r?\n/);
+      const entries = [];
+      let current = null;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const m = line.match(tsLineStart);
+        if (m) {
+          // Start a new entry when a line begins with a timestamp
+          if (current) entries.push(current);
+          current = {
+            text: line, // will add subsequent lines if they don't begin with timestamp
+            timeSecs: toSecs(m[1], m[2], m[3]),
+            index: entries.length // original order for stability among same timestamps
+          };
+        } else {
+          // Continuation of current entry (or standalone line if no current yet)
+          if (current) {
+            current.text += "\n" + line;
+          } else if (line.trim() !== "") {
+            // No current entry and non-empty line; keep as no-timestamp entry with Infinity to sort last
+            entries.push({ text: line, timeSecs: Number.POSITIVE_INFINITY, index: entries.length });
+          } else {
+            // empty line before any timestamp — preserve as no-timestamp
+            entries.push({ text: line, timeSecs: Number.POSITIVE_INFINITY, index: entries.length });
+          }
+        }
+      }
+
+      if (current) entries.push(current);
+
+      // If we never found any timestamp at line start, fallback: treat each non-empty line independently and look for first HH:MM:SS anywhere in the line.
+      const sawAnyTimestamp = entries.some(e => e.timeSecs !== Number.POSITIVE_INFINITY);
+      if (!sawAnyTimestamp) {
+        const alt = raw.split(/\r?\n/).map((ln, i) => {
+          const m2 = ln.match(/(\d{2}):(\d{2}):(\d{2})/);
+          const secs = m2 ? toSecs(m2[1], m2[2], m2[3]) : Number.POSITIVE_INFINITY;
+          return { text: ln, timeSecs: secs, index: i };
+        });
+        return alt;
+      }
+
+      return entries;
+    }
+
+    function sortEntries(entries) {
+      return entries.slice().sort((a, b) => {
+        if (a.timeSecs === b.timeSecs) return a.index - b.index; // stable for ties
+        return a.timeSecs - b.timeSecs;
+      });
+    }
+
+    function handleSort() {
+      const raw = inputEl.value || "";
+      const entries = parseEntries(raw);
+      const sorted = sortEntries(entries);
+      // Join entries with a single newline between them
+      const out = sorted.map(e => e.text).join("\n").replace(/\n{3,}/g, "\n\n");
+      outputEl.value = out;
+    }
+
+    sortBtn.addEventListener('click', handleSort);
+
+    swapBtn.addEventListener('click', () => {
+      const tmp = inputEl.value;
+      inputEl.value = outputEl.value;
+      outputEl.value = tmp;
+    });
+
+    clearBtn.addEventListener('click', () => {
+      inputEl.value = '';
+      outputEl.value = '';
+      inputEl.focus();
+    });
+
+    // Keyboard shortcut: Ctrl/Cmd+Enter to Sort
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        handleSort();
+      }
+    });
+  </script>
+</body>
+</html>
