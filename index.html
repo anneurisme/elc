@@ -41,7 +41,6 @@
       <textarea id="input" placeholder="Example:\n16:49:34 First event\n16:50:01 Something else\n16:50:01 Same second different line\n16:45:10 Earlier thing\n\nMultiline entries are supported if each new entry starts with HH:MM:SS at the beginning of a line."></textarea>
       <div class="controls">
         <button id="sortBtn" class="btn">Sort it</button>
-        <button id="swapBtn" class="btn secondary" title="Swap input and output">Swap</button>
         <button id="clearBtn" class="btn secondary" title="Clear both boxes">Clear</button>
       </div>
    </section>
@@ -57,7 +56,6 @@
     const inputEl = document.getElementById('input');
     const outputEl = document.getElementById('output');
     const sortBtn = document.getElementById('sortBtn');
-    const swapBtn = document.getElementById('swapBtn');
     const clearBtn = document.getElementById('clearBtn');
 
     // Matches timestamps at the start of a line: HH:MM:SS
@@ -128,12 +126,6 @@
     }
 
     sortBtn.addEventListener('click', handleSort);
-
-    swapBtn.addEventListener('click', () => {
-      const tmp = inputEl.value;
-      inputEl.value = outputEl.value;
-      outputEl.value = tmp;
-    });
 
     clearBtn.addEventListener('click', () => {
       inputEl.value = '';
